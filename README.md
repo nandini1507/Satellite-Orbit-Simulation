@@ -83,7 +83,7 @@ git clone https://github.com/yourusername/satellite-orbit-simulation.git
 Navigate to the project folder and open:
 
 ```text
-index.html
+satellite_simulation.html
 ```
 
 in any modern web browser.
