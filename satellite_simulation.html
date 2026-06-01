@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Satellite Orbit Simulation</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #020b16;
+    --surface:  rgba(5,18,38,0.88);
+    --border:   rgba(74,159,212,0.18);
+    --accent:   #4a9fd4;
+    --accent2:  #00e5ff;
+    --text:     #8ab4d4;
+    --text-dim: #3a6a8a;
+    --mono:     'Share Tech Mono', monospace;
+    --body:     'Exo 2', sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    overflow: hidden;
+  }
+
+  /* ── Layout ─────────────────────────────────── */
+  #app {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    grid-template-rows: 48px 1fr 80px;
+    width: 100vw; height: 100vh;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  header {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 20px;
+    border-bottom: 0.5px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: blur(8px);
+    z-index: 20;
+  }
+  header .logo {
+    font-family: var(--mono);
+    font-size: 15px; color: var(--accent2);
+    letter-spacing: 2px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  header .logo::before {
+    content: '';
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent2);
+    box-shadow: 0 0 8px var(--accent2);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  #hud-time {
+    font-family: var(--mono);
+    font-size: 12px; color: var(--accent);
+    margin-left: auto;
+    letter-spacing: 1px;
+  }
+
+  /* ── Canvas ─────────────────────────────────── */
+  #canvas-wrap {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── Side panel ─────────────────────────────── */
+  #side {
+    border-left: 0.5px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: blur(8px);
+    overflow-y: auto;
+    padding: 12px 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #side::-webkit-scrollbar { width: 3px; }
+  #side::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 0 2px 6px;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .sat-card {
+    border: 0.5px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: rgba(4,14,28,0.6);
+  }
+  .sat-card:hover { border-color: rgba(74,200,255,0.35); background: rgba(10,30,55,0.7); }
+  .sat-card.active { border-color: rgba(74,200,255,0.6); background: rgba(10,30,60,0.85); }
+
+  .sat-name {
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 600;
+    margin-bottom: 5px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  .sat-stats { display: flex; flex-direction: column; gap: 2px; }
+  .stat-row {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-dim);
+  }
+  .stat-row span { color: var(--text); font-family: var(--mono); }
+
+  /* ── Bottom controls ────────────────────────── */
+  #controls {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 20px;
+    border-top: 0.5px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: blur(8px);
+    flex-wrap: wrap;
+  }
+
+  .ctrl-group {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .ctrl-group label { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 90px; height: 3px;
+    background: rgba(74,159,212,0.2);
+    border-radius: 2px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    cursor: pointer;
+  }
+
+  .val-badge {
+    font-family: var(--mono);
+    font-size: 11px; color: var(--accent);
+    min-width: 38px; text-align: right;
+  }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 1px;
+    color: var(--accent);
+    background: rgba(74,159,212,0.08);
+    border: 0.5px solid rgba(74,159,212,0.3);
+    border-radius: 5px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    text-transform: uppercase;
+  }
+  .btn:hover { background: rgba(74,159,212,0.2); }
+  .btn.active { background: rgba(74,159,212,0.25); border-color: var(--accent); color: var(--accent2); }
+
+  /* ── Tooltip ────────────────────────────────── */
+  #tooltip {
+    position: fixed;
+    background: rgba(5,18,38,0.97);
+    border: 0.5px solid rgba(74,200,255,0.4);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px; color: var(--text);
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+    white-space: nowrap;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  }
+  #tooltip b { font-family: var(--mono); font-size: 12px; }
+  #tooltip .tip-row { display: flex; justify-content: space-between; gap: 20px; margin-top: 3px; font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  #tooltip .tip-row span { color: var(--text); }
+
+  /* ── Legend overlay ─────────────────────────── */
+  #legend {
+    position: absolute;
+    bottom: 14px; left: 14px;
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 10px;
+    backdrop-filter: blur(6px);
+    z-index: 10;
+  }
+  .leg-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; color: var(--text-dim); }
+  .leg-row:last-child { margin-bottom: 0; }
+  .leg-line { width: 20px; height: 1.5px; border-radius: 1px; }
+  .leg-dash { width: 20px; height: 1px; background: repeating-linear-gradient(90deg,rgba(74,159,212,0.5) 0 4px,transparent 4px 7px); }
+  .leg-circle { width: 7px; height: 7px; border-radius: 50%; background: #fff; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="logo">ORBITWATCH</div>
+    <div style="font-size:11px;color:var(--text-dim);font-family:var(--mono)">SATELLITE ORBIT SIMULATION</div>
+    <div id="hud-time">UTC 2024-001 00:00:00</div>
+  </header>
+
+  <div id="canvas-wrap">
+    <canvas id="c"></canvas>
+    <div id="legend">
+      <div class="leg-row"><div class="leg-dash"></div> Orbit path</div>
+      <div class="leg-row"><div class="leg-line" style="background:rgba(255,255,255,0.5)"></div> Trail</div>
+      <div class="leg-row"><div class="leg-circle"></div> Satellite</div>
+    </div>
+  </div>
+
+  <div id="side">
+    <div class="panel-title">Satellites</div>
+    <div id="sat-panel"></div>
+  </div>
+
+  <div id="controls">
+    <div class="ctrl-group">
+      <button class="btn active" id="btn-play">⏸ Pause</button>
+    </div>
+    <div class="ctrl-group">
+      <label>SPEED</label>
+      <input type="range" id="speed" min="1" max="300" value="50">
+      <span class="val-badge" id="speed-val">50×</span>
+    </div>
+    <div class="ctrl-group">
+      <label>TILT</label>
+      <input type="range" id="tilt" min="-90" max="90" value="25">
+      <span class="val-badge" id="tilt-val">25°</span>
+    </div>
+    <div class="ctrl-group">
+      <label>VIEW</label>
+      <button class="btn active" id="btn-eq">Equatorial</button>
+      <button class="btn" id="btn-pol">Polar</button>
+      <button class="btn" id="btn-side">Side</button>
+    </div>
+    <div class="ctrl-group" style="margin-left:auto">
+      <label>TRAIL</label>
+      <input type="range" id="trail-len" min="10" max="200" value="80">
+      <span class="val-badge" id="trail-val">80</span>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+const EARTH_R = 6371;
+
+// ── Satellites ────────────────────────────────────────────────────────────────
+const SAT_DEFS = [
+  { name:'ISS',        color:'#00e5ff', alt:408,   inc:51.6, period:92.68,  phase:0.00, raan:210, desc:'International Space Station' },
+  { name:'Hubble',     color:'#ff6b35', alt:540,   inc:28.5, period:95.42,  phase:0.55, raan:75,  desc:'Hubble Space Telescope' },
+  { name:'NOAA 18',    color:'#a8ff3e', alt:854,   inc:99.0, period:101.6,  phase:1.10, raan:320, desc:'Weather satellite (Sun-sync)' },
+  { name:'Starlink',   color:'#f7c948', alt:550,   inc:53.0, period:95.70,  phase:1.80, raan:145, desc:'Broadband megaconstellation' },
+  { name:'GPS II-R',   color:'#c084fc', alt:20200, inc:55.0, period:717.97, phase:0.35, raan:60,  desc:'GPS navigation satellite' },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const wrap    = document.getElementById('canvas-wrap');
+let W, H;
+
+let simTime   = 0;
+let paused    = false;
+let speedMult = 50;
+let tiltDeg   = 25;
+let azimuth   = 0;
+let trailMax  = 80;
+let selectedSat = null;
+let lastTs    = null;
+let autoRotate = true;
+
+const sats = SAT_DEFS.map(d => ({ ...d, trail: [] }));
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+function resize() {
+  const r = wrap.getBoundingClientRect();
+  W = canvas.width  = r.width;
+  H = canvas.height = r.height;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Stars ─────────────────────────────────────────────────────────────────────
+const stars = Array.from({length: 250}, () => ({
+  x: Math.random(), y: Math.random(),
+  r: Math.random() * 1.3 + 0.2,
+  a: Math.random() * 0.65 + 0.2,
+  twinkle: Math.random() * Math.PI * 2,
+}));
+
+// ── Projection ────────────────────────────────────────────────────────────────
+function project(x3, y3, z3) {
+  const tilt = tiltDeg * Math.PI / 180;
+  const az   = azimuth  * Math.PI / 180;
+  const rx =  x3 * Math.cos(az) - y3 * Math.sin(az);
+  const ry =  x3 * Math.sin(az) + y3 * Math.cos(az);
+  const rz =  z3;
+  const px =  rx;
+  const py =  ry * Math.cos(tilt) - rz * Math.sin(tilt);
+  const pz =  ry * Math.sin(tilt) + rz * Math.cos(tilt);
+  const scale = Math.min(W, H) / (2 * (EARTH_R + 23000));
+  return { x: W/2 + px*scale, y: H/2 - py*scale, z: pz, scale };
+}
+
+// ── Orbital position ──────────────────────────────────────────────────────────
+function satPos(def, t) {
+  const a    = EARTH_R + def.alt;
+  const n    = 2 * Math.PI / (def.period * 60);
+  const M    = def.phase + n * t;
+  const inc  = def.inc  * Math.PI / 180;
+  const raan = (def.raan * Math.PI / 180) + 7.2921e-5 * t;
+  const ux = Math.cos(raan)*Math.cos(M) - Math.sin(raan)*Math.sin(M)*Math.cos(inc);
+  const uy = Math.sin(raan)*Math.cos(M) + Math.cos(raan)*Math.sin(M)*Math.cos(inc);
+  const uz = Math.sin(M) * Math.sin(inc);
+  return { x: a*ux, y: a*uy, z: a*uz };
+}
+
+function orbitPoints(def, t, steps=150) {
+  return Array.from({length: steps+1}, (_,i) => {
+    const dt = (def.period * 60 * i) / steps;
+    return satPos(def, t + dt);
+  });
+}
+
+// ── Draw stars ────────────────────────────────────────────────────────────────
+function drawStars(t) {
+  for (const s of stars) {
+    const twinkleA = s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.twinkle));
+    ctx.beginPath();
+    ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(200,220,255,${twinkleA})`;
+    ctx.fill();
+  }
+}
+
+// ── Draw Earth ────────────────────────────────────────────────────────────────
+function drawEarth() {
+  const scale = Math.min(W, H) / (2 * (EARTH_R + 23000));
+  const r = EARTH_R * scale;
+  const cx = W/2, cy = H/2;
+
+  // Base sphere
+  const baseGrd = ctx.createRadialGradient(cx - r*0.25, cy - r*0.25, r*0.05, cx, cy, r);
+  baseGrd.addColorStop(0,   '#1e5080');
+  baseGrd.addColorStop(0.4, '#0d3060');
+  baseGrd.addColorStop(1,   '#040d1e');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = baseGrd;
+  ctx.fill();
+
+  // Continent-like patches (simplified blobs)
+  const patches = [
+    {lon:20,  lat:20,  sr:0.18, col:'rgba(34,90,44,0.35)'},
+    {lon:80,  lat:15,  sr:0.15, col:'rgba(34,90,44,0.3)'},
+    {lon:-100,lat:40,  sr:0.16, col:'rgba(34,90,44,0.3)'},
+    {lon:-60, lat:-15, sr:0.12, col:'rgba(34,90,44,0.25)'},
+    {lon:135, lat:-25, sr:0.10, col:'rgba(34,90,44,0.25)'},
+    {lon:25,  lat:60,  sr:0.09, col:'rgba(255,255,255,0.06)'},
+  ];
+  for (const pt of patches) {
+    const lonR  = (pt.lon * Math.PI/180) + azimuth * Math.PI/180;
+    const latR  = pt.lat  * Math.PI/180;
+    const x3 = EARTH_R * Math.cos(latR) * Math.cos(lonR);
+    const y3 = EARTH_R * Math.cos(latR) * Math.sin(lonR);
+    const z3 = EARTH_R * Math.sin(latR);
+    const p  = project(x3, y3, z3);
+    if (p.z < 0) continue;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, r * pt.sr * 1.4, r * pt.sr, Math.random()*0.5, 0, Math.PI*2);
+    ctx.fillStyle = pt.col;
+    ctx.fill();
+  }
+
+  // Grid lines
+  ctx.lineWidth = 0.4;
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const latR  = lat * Math.PI/180;
+    const y0    = EARTH_R * Math.sin(latR);
+    const rLat  = EARTH_R * Math.cos(latR);
+    ctx.beginPath();
+    let skip = true;
+    for (let i = 0; i <= 120; i++) {
+      const lon = (i/120) * Math.PI*2;
+      const p = project(rLat*Math.cos(lon), rLat*Math.sin(lon), y0);
+      if (p.z < 0) { skip = true; continue; }
+      if (skip) { ctx.moveTo(p.x, p.y); skip = false; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = lat === 0 ? 'rgba(74,159,212,0.4)' : 'rgba(74,120,180,0.18)';
+    ctx.lineWidth   = lat === 0 ? 0.8 : 0.4;
+    ctx.stroke();
+  }
+  for (let lon = 0; lon < 360; lon += 30) {
+    const lonR = lon * Math.PI/180;
+    ctx.beginPath();
+    let skip = true;
+    for (let i = 0; i <= 100; i++) {
+      const lat = ((i/100)*2 - 1) * Math.PI/2;
+      const p = project(
+        EARTH_R * Math.cos(lat) * Math.cos(lonR),
+        EARTH_R * Math.cos(lat) * Math.sin(lonR),
+        EARTH_R * Math.sin(lat)
+      );
+      if (p.z < 0) { skip = true; continue; }
+      if (skip) { ctx.moveTo(p.x, p.y); skip = false; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = 'rgba(74,120,180,0.15)';
+    ctx.lineWidth = 0.4;
+    ctx.stroke();
+  }
+
+  // Atmosphere
+  const atm = ctx.createRadialGradient(cx, cy, r*0.94, cx, cy, r*1.14);
+  atm.addColorStop(0, 'rgba(50,130,220,0.22)');
+  atm.addColorStop(0.5,'rgba(30,90,180,0.1)');
+  atm.addColorStop(1,  'rgba(10,40,120,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r*1.14, 0, Math.PI*2);
+  ctx.fillStyle = atm;
+  ctx.fill();
+
+  // Specular highlight
+  const spec = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, 0, cx - r*0.2, cy - r*0.2, r*0.55);
+  spec.addColorStop(0,   'rgba(180,220,255,0.12)');
+  spec.addColorStop(0.5, 'rgba(100,160,255,0.04)');
+  spec.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = spec;
+  ctx.fill();
+}
+
+// ── Draw orbit path ───────────────────────────────────────────────────────────
+function drawOrbit(def) {
+  const pts = orbitPoints(def, simTime);
+  ctx.setLineDash([3,5]);
+  ctx.lineWidth = 0.7;
+  ctx.strokeStyle = def.color + '44';
+  ctx.beginPath();
+  let drawing = false;
+  for (const p3 of pts) {
+    const p = project(p3.x, p3.y, p3.z);
+    if (p.z < -EARTH_R * 0.4) { ctx.stroke(); ctx.beginPath(); drawing = false; continue; }
+    if (!drawing) { ctx.moveTo(p.x, p.y); drawing = true; }
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ── Draw trail ────────────────────────────────────────────────────────────────
+function drawTrail(sat) {
+  const tr = sat.trail;
+  if (tr.length < 2) return;
+  for (let i = 1; i < tr.length; i++) {
+    const p0 = project(tr[i-1].x, tr[i-1].y, tr[i-1].z);
+    const p1 = project(tr[i].x,   tr[i].y,   tr[i].z);
+    if (p0.z < -EARTH_R || p1.z < -EARTH_R) continue;
+    const alpha = (i / tr.length) * 0.9;
+    const hex   = Math.floor(alpha*255).toString(16).padStart(2,'0');
+    ctx.strokeStyle = sat.color + hex;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+}
+
+// ── Draw satellite ────────────────────────────────────────────────────────────
+let satScreenPositions = [];
+
+function drawSat(sat, pos, t) {
+  const p = project(pos.x, pos.y, pos.z);
+  if (p.z < 0) return;
+  const isSel = sat.name === selectedSat;
+  const r = isSel ? 6 : 4;
+
+  // Outer glow
+  const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r+10);
+  g.addColorStop(0,   sat.color + '44');
+  g.addColorStop(1,   sat.color + '00');
+  ctx.beginPath(); ctx.arc(p.x, p.y, r+10, 0, Math.PI*2);
+  ctx.fillStyle = g; ctx.fill();
+
+  // Body
+  ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+  ctx.fillStyle = sat.color; ctx.fill();
+
+  // Glint
+  ctx.beginPath(); ctx.arc(p.x - r*0.28, p.y - r*0.28, r*0.32, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
+
+  // Selection ring
+  if (isSel) {
+    ctx.beginPath(); ctx.arc(p.x, p.y, r+7, 0, Math.PI*2);
+    ctx.strokeStyle = sat.color + 'bb';
+    ctx.lineWidth = 1.5; ctx.stroke();
+    // Scan animation
+    const scanAngle = (t * 2) % (Math.PI*2);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r+7, scanAngle, scanAngle + Math.PI*0.6);
+    ctx.strokeStyle = sat.color; ctx.lineWidth = 1.8; ctx.stroke();
+  }
+
+  // Label
+  ctx.font = `${isSel?'600 ':''} 11px 'Exo 2', sans-serif`;
+  ctx.fillStyle = isSel ? sat.color : sat.color + 'cc';
+  ctx.fillText(sat.name, p.x + r + 5, p.y + 4);
+
+  satScreenPositions.push({ sat, sx: p.x, sy: p.y, r: r + 12 });
+}
+
+// ── HUD & Panel updates ───────────────────────────────────────────────────────
+function updateHUD() {
+  const d   = new Date(Date.UTC(2024,0,1) + simTime*1000);
+  const pad = n => String(n).padStart(2,'0');
+  const doy = Math.floor((d - Date.UTC(d.getUTCFullYear(),0,0)) / 86400000);
+  document.getElementById('hud-time').textContent =
+    `UTC ${d.getUTCFullYear()}-${String(doy).padStart(3,'0')}  ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function updateSatPanel() {
+  const panel = document.getElementById('sat-panel');
+  panel.innerHTML = '';
+  sats.forEach(sat => {
+    const v = +(2 * Math.PI * (EARTH_R + sat.alt) / (sat.period * 60)).toFixed(2);
+    const card = document.createElement('div');
+    card.className = 'sat-card' + (sat.name === selectedSat ? ' active' : '');
+    card.onclick = () => { selectedSat = selectedSat === sat.name ? null : sat.name; updateSatPanel(); };
+    card.innerHTML = `
+      <div class="sat-name">
+        <div class="sat-dot" style="background:${sat.color};box-shadow:0 0 6px ${sat.color}"></div>
+        <span style="color:${sat.color}">${sat.name}</span>
+      </div>
+      <div class="sat-stats">
+        <div class="stat-row">Alt <span>${sat.alt.toLocaleString()} km</span></div>
+        <div class="stat-row">Speed <span>${v} km/s</span></div>
+        <div class="stat-row">Period <span>${sat.period < 100 ? sat.period.toFixed(0)+' min' : (sat.period/60).toFixed(1)+' hr'}</span></div>
+        <div class="stat-row">Incl. <span>${sat.inc}°</span></div>
+      </div>`;
+    panel.appendChild(card);
+  });
+}
+
+// ── Main render loop ──────────────────────────────────────────────────────────
+function render(ts) {
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min((ts - lastTs) / 1000, 0.1);
+  lastTs = ts;
+  const t  = ts / 1000;
+
+  if (!paused) {
+    simTime   += dt * speedMult;
+    if (autoRotate) azimuth += dt * 2.0;
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#020b16';
+  ctx.fillRect(0, 0, W, H);
+
+  drawStars(t);
+  drawEarth();
+  sats.forEach(sat => drawOrbit(sat));
+
+  // Update trails
+  const positions = sats.map(sat => {
+    const pos = satPos(sat, simTime);
+    if (!paused) {
+      sat.trail.push({...pos});
+      if (sat.trail.length > trailMax) sat.trail.shift();
+    }
+    return { sat, pos };
+  });
+
+  // Sort by z-depth for correct draw order
+  positions.sort((a, b) => {
+    const pa = project(a.pos.x, a.pos.y, a.pos.z);
+    const pb = project(b.pos.x, b.pos.y, b.pos.z);
+    return pa.z - pb.z;
+  });
+
+  satScreenPositions = [];
+  positions.forEach(({sat}) => drawTrail(sat));
+  positions.forEach(({sat, pos}) => drawSat(sat, pos, t));
+
+  updateHUD();
+  requestAnimationFrame(render);
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+document.getElementById('speed').oninput = function() {
+  speedMult = +this.value;
+  document.getElementById('speed-val').textContent = speedMult + '×';
+};
+document.getElementById('tilt').oninput = function() {
+  tiltDeg = +this.value;
+  document.getElementById('tilt-val').textContent = tiltDeg + '°';
+};
+document.getElementById('trail-len').oninput = function() {
+  trailMax = +this.value;
+  document.getElementById('trail-val').textContent = trailMax;
+};
+
+const btnPlay = document.getElementById('btn-play');
+btnPlay.onclick = () => {
+  paused = !paused;
+  btnPlay.textContent = paused ? '▶ Play' : '⏸ Pause';
+  btnPlay.classList.toggle('active', !paused);
+};
+
+function setView(t, az) {
+  tiltDeg = t; azimuth = az;
+  document.getElementById('tilt').value = t;
+  document.getElementById('tilt-val').textContent = t + '°';
+}
+document.getElementById('btn-eq').onclick  = function() { setView(25,0); [this, document.getElementById('btn-pol'), document.getElementById('btn-side')].forEach((b,i) => b.classList.toggle('active', i===0)); };
+document.getElementById('btn-pol').onclick = function() { setView(90,0); [document.getElementById('btn-eq'), this, document.getElementById('btn-side')].forEach((b,i) => b.classList.toggle('active', i===1)); };
+document.getElementById('btn-side').onclick= function() { setView(0,0);  [document.getElementById('btn-eq'), document.getElementById('btn-pol'), this].forEach((b,i) => b.classList.toggle('active', i===2)); };
+
+// ── Mouse drag to rotate ──────────────────────────────────────────────────────
+let dragging = false, dragX = 0, dragY = 0;
+canvas.addEventListener('mousedown', e => { dragging = true; dragX = e.clientX; dragY = e.clientY; autoRotate = false; });
+window.addEventListener('mouseup',   () => { dragging = false; });
+window.addEventListener('mousemove', e => {
+  if (dragging) {
+    azimuth += (e.clientX - dragX) * 0.35;
+    tiltDeg  = Math.max(-90, Math.min(90, tiltDeg - (e.clientY - dragY) * 0.35));
+    document.getElementById('tilt').value = Math.round(tiltDeg);
+    document.getElementById('tilt-val').textContent = Math.round(tiltDeg) + '°';
+    dragX = e.clientX; dragY = e.clientY;
+  }
+  // Tooltip
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const tip = document.getElementById('tooltip');
+  let hit = false;
+  for (const {sat, sx, sy, r} of satScreenPositions) {
+    if (Math.hypot(sx-mx, sy-my) < r) {
+      const v = (2*Math.PI*(EARTH_R+sat.alt)/(sat.period*60)).toFixed(2);
+      tip.style.display = 'block';
+      tip.style.left    = (e.clientX + 14) + 'px';
+      tip.style.top     = (e.clientY - 10) + 'px';
+      tip.innerHTML     = `<b style="color:${sat.color}">${sat.name}</b>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${sat.desc}</div>
+        <div class="tip-row">Altitude <span>${sat.alt.toLocaleString()} km</span></div>
+        <div class="tip-row">Speed <span>${v} km/s</span></div>
+        <div class="tip-row">Period <span>${sat.period<100?sat.period.toFixed(0)+' min':(sat.period/60).toFixed(1)+' hr'}</span></div>
+        <div class="tip-row">Inclination <span>${sat.inc}°</span></div>`;
+      hit = true; break;
+    }
+  }
+  if (!hit) tip.style.display = 'none';
+});
+
+canvas.addEventListener('dblclick', () => { autoRotate = true; });
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+updateSatPanel();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
